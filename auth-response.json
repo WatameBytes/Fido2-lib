@@ -1,0 +1,4 @@
+{
+  "assertionId": "71b2fbcf-8a54-4a36-b5b3-d65c603b2114",
+  "publicKeyCredentialJson": "{\"id\":\"x6rgTtUynQ9E9NbQSbZOOQ\",\"rawId\":\"x6rgTtUynQ9E9NbQSbZOOQ\",\"type\":\"public-key\",\"response\":{\"authenticatorData\":\"SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MBAAAAAA\",\"clientDataJSON\":\"eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid0xuQVdWSUNNcWR2WjJENi14N3VNTmFDUVdJeGFOd1Rxb2RDdzFiVE8xVSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0\",\"signature\":\"MEUCIHhS_xi2WdBY1QKIsjTzmaPaUfVCv1pt-81tT9-jqIQ_AiEAoyA27ol_fvvLFqdpyiWxLcd8vAuQvuG78rfqNBrf0yk\"},\"clientExtensionResults\":{}}"
+}
