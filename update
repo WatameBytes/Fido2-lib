@@ -3,9 +3,8 @@ import cbor from 'cbor';
 import base64url from 'base64url';
 import fs from 'fs/promises';
 
-async function signWebAuthn(inputData) {
-  const registrationId = inputData.registrationId;
-  const publicKeyCredentialCreationOptions = JSON.parse(inputData.publicKeyCredentialCreationOptions);
+async function signWebAuthn(publicKeyCredentialCreationOptionsJson) {
+  const publicKeyCredentialCreationOptions = JSON.parse(publicKeyCredentialCreationOptionsJson);
   const { challenge, rp } = publicKeyCredentialCreationOptions.publicKey;
 
   const keyPair = crypto.generateKeyPairSync('ec', {
@@ -72,10 +71,7 @@ async function signWebAuthn(inputData) {
     authenticatorAttachment: 'platform',
   };
 
-  return {
-    registrationId,
-    publicKeyCredentialString: JSON.stringify(credential),
-  };
+  return JSON.stringify(credential);
 }
 
 function extractPublicKeyCoords(spkiDer) {
@@ -94,28 +90,18 @@ function extractPublicKeyCoords(spkiDer) {
 }
 
 async function main() {
-  const inputFile = 'input.txt';
-  const inputs = ["A", "B", "C"];
-  const targets = ["B"]; // only "B" gets signed
-  const outputs = ["X.json", "Y.json", "Z.json"];
+  const input = JSON.parse(await fs.readFile('input.txt', 'utf8'));
 
-  const fileContent = JSON.parse(await fs.readFile(inputFile, 'utf8'));
+  const outputs = ["X", "Y", "Z"];
 
-  for (let i = 0; i < inputs.length; i++) {
-    const currentInputKey = inputs[i];
-    const currentOutputFile = outputs[i];
+  const finalOutput = {
+    [outputs[0]]: input.registrationId,
+    [outputs[1]]: await signWebAuthn(input.publicKeyCredentialCreationOptionsJson),
+    [outputs[2]]: input.encryptedChallenge
+  };
 
-    if (targets.includes(currentInputKey)) {
-      // Perform signing
-      const signedData = await signWebAuthn(fileContent[currentInputKey]);
-      await fs.writeFile(currentOutputFile, JSON.stringify(signedData, null, 2));
-      console.log(`Signed and wrote '${currentInputKey}' to '${currentOutputFile}'`);
-    } else {
-      // Just copy the data as-is
-      await fs.writeFile(currentOutputFile, JSON.stringify(fileContent[currentInputKey], null, 2));
-      console.log(`Copied '${currentInputKey}' directly to '${currentOutputFile}'`);
-    }
-  }
+  await fs.writeFile('signedInput.txt', JSON.stringify(finalOutput, null, 2));
+  console.log(`Successfully signed input and wrote to 'signedInput.txt'`);
 }
 
 main().catch(console.error);
