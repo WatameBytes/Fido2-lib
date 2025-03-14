@@ -3,17 +3,10 @@ import cbor from 'cbor';
 import base64url from 'base64url';
 import fs from 'fs/promises';
 
-async function signChallengeFromFile(inputFile, target, outputFile) {
-  const fileContent = JSON.parse(await fs.readFile(inputFile, 'utf8'));
-
-  const inputData = fileContent[target];
-  if (!inputData) throw new Error(`Target key '${target}' not found in input file.`);
-
+async function signWebAuthn(inputData) {
   const registrationId = inputData.registrationId;
   const publicKeyCredentialCreationOptions = JSON.parse(inputData.publicKeyCredentialCreationOptions);
-  const { challenge, rp, user } = publicKeyCredentialCreationOptions.publicKey;
-
-  const challengeBuffer = base64url.toBuffer(challenge);
+  const { challenge, rp } = publicKeyCredentialCreationOptions.publicKey;
 
   const keyPair = crypto.generateKeyPairSync('ec', {
     namedCurve: 'prime256v1',
@@ -41,7 +34,6 @@ async function signChallengeFromFile(inputFile, target, outputFile) {
   credIdLenBuf.writeUInt16BE(credId.length, 0);
 
   const publicKeyCoords = extractPublicKeyCoords(keyPair.publicKey);
-
   const cosePublicKey = new Map([
     [1, 2],
     [3, -7],
@@ -80,18 +72,14 @@ async function signChallengeFromFile(inputFile, target, outputFile) {
     authenticatorAttachment: 'platform',
   };
 
-  const finalOutput = {
+  return {
     registrationId,
     publicKeyCredentialString: JSON.stringify(credential),
   };
-
-  await fs.writeFile(outputFile, JSON.stringify(finalOutput, null, 2));
-  console.log(`Credential signed and saved to '${outputFile}'`);
 }
 
 function extractPublicKeyCoords(spkiDer) {
   let offset = spkiDer.length - 65;
-
   while (offset >= 0) {
     if (spkiDer[offset] === 0x04 && offset + 65 <= spkiDer.length) {
       const coords = spkiDer.slice(offset + 1, offset + 65);
@@ -105,25 +93,29 @@ function extractPublicKeyCoords(spkiDer) {
   throw new Error('Failed to extract public key coordinates');
 }
 
-async function processMultipleInputs({ inputFile, inputs, outputs, targets }) {
-  if (inputs.length !== outputs.length || inputs.length !== targets.length) {
-    throw new Error('Inputs, targets, and outputs arrays must have the same length');
-  }
+async function main() {
+  const inputFile = 'input.txt';
+  const inputs = ["A", "B", "C"];
+  const targets = ["B"]; // only "B" gets signed
+  const outputs = ["X.json", "Y.json", "Z.json"];
+
+  const fileContent = JSON.parse(await fs.readFile(inputFile, 'utf8'));
 
   for (let i = 0; i < inputs.length; i++) {
-    const target = targets[i];
-    const inputKey = inputs[i];
-    const outputFile = outputs[i];
+    const currentInputKey = inputs[i];
+    const currentOutputFile = outputs[i];
 
-    await signChallengeFromFile(inputFile, inputKey, outputFile);
+    if (targets.includes(currentInputKey)) {
+      // Perform signing
+      const signedData = await signWebAuthn(fileContent[currentInputKey]);
+      await fs.writeFile(currentOutputFile, JSON.stringify(signedData, null, 2));
+      console.log(`Signed and wrote '${currentInputKey}' to '${currentOutputFile}'`);
+    } else {
+      // Just copy the data as-is
+      await fs.writeFile(currentOutputFile, JSON.stringify(fileContent[currentInputKey], null, 2));
+      console.log(`Copied '${currentInputKey}' directly to '${currentOutputFile}'`);
+    }
   }
 }
 
-const config = {
-  inputFile: 'input.txt',
-  inputs: ["IMadeHTisName", "ThisIsFake", "Look"],
-  targets: ["IMadeHTisName", "ThisIsFake", "Look"], // using same keys for target lookup
-  outputs: ["goHere.json", "here.json", "andHere.json"],
-};
-
-processMultipleInputs(config).catch(console.error);
+main().catch(console.error);
