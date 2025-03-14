@@ -1,0 +1,204 @@
+import crypto from 'crypto';
+import cbor from 'cbor';
+import base64url from 'base64url';
+import fs from 'fs/promises';
+
+// Configuration for input and output fields
+const inputFields = {
+  required: ["registrationId", "publicKeyCredentialCreationOptions"],
+  optional: []
+};
+
+const outputFields = {
+  required: ["registrationId", "publicKeyCredentialString"],
+  optional: []
+};
+
+/**
+ * Processes WebAuthn challenge from a file and generates signed credentials
+ * @param {string} inputFilename - Path to the input file
+ * @param {string} outputFilename - Path to save the output (defaults to 'generated-credential.json')
+ */
+async function processWebAuthnChallenge(inputFilename, outputFilename = 'generated-credential.json') {
+  try {
+    // Read and parse input file
+    console.log(`Reading input from ${inputFilename}`);
+    const inputData = JSON.parse(await fs.readFile(inputFilename, 'utf8'));
+    
+    // Validate input fields
+    validateFields(inputData, inputFields.required, 'input');
+    
+    // Extract required fields
+    const registrationId = inputData.registrationId;
+    const publicKeyCredentialCreationOptions = typeof inputData.publicKeyCredentialCreationOptions === 'string' 
+      ? JSON.parse(inputData.publicKeyCredentialCreationOptions)
+      : inputData.publicKeyCredentialCreationOptions;
+    
+    // Extract challenge data
+    const { challenge, rp, user } = publicKeyCredentialCreationOptions.publicKey;
+    const challengeBuffer = base64url.toBuffer(challenge);
+    
+    // Generate credentials
+    const credential = generateCredential(challenge, rp, user);
+    
+    // Prepare output
+    const output = {
+      registrationId,
+      publicKeyCredentialString: JSON.stringify(credential)
+    };
+    
+    // Add any additional optional fields specified in outputFields.optional
+    // that might be carried over from the input
+    for (const field of outputFields.optional) {
+      if (inputData[field] !== undefined) {
+        output[field] = inputData[field];
+      }
+    }
+    
+    // Write output to file
+    await fs.writeFile(outputFilename, JSON.stringify(output, null, 2));
+    console.log(`Credential signed and saved to "${outputFilename}"`);
+    
+    return output;
+  } catch (error) {
+    console.error('Error processing WebAuthn challenge:', error);
+    throw error;
+  }
+}
+
+/**
+ * Validates if all required fields are present in the data
+ * @param {Object} data - Data to validate
+ * @param {Array<string>} requiredFields - List of required field names
+ * @param {string} context - Context for error messages
+ * @throws {Error} If any required field is missing
+ */
+function validateFields(data, requiredFields, context) {
+  const missingFields = requiredFields.filter(field => data[field] === undefined);
+  if (missingFields.length > 0) {
+    throw new Error(`Missing required ${context} fields: ${missingFields.join(', ')}`);
+  }
+}
+
+/**
+ * Generates a WebAuthn credential
+ * @param {string} challenge - Base64url encoded challenge
+ * @param {Object} rp - Relying Party information
+ * @param {Object} user - User information
+ * @returns {Object} Generated credential
+ */
+function generateCredential(challenge, rp, user) {
+  // Generate key pair
+  const keyPair = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+    publicKeyEncoding: { type: 'spki', format: 'der' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  
+  // Determine the origin based on the RP ID
+  const origin = rp.id === "localhost" 
+    ? "http://localhost:3000"
+    : `https://${rp.id}`;
+  
+  // Create client data JSON
+  const clientDataJSON = Buffer.from(JSON.stringify({
+    type: 'webauthn.create',
+    challenge: challenge,
+    origin: origin,
+    crossOrigin: false,
+  }));
+  
+  // Generate authenticator data
+  const rpIdHash = crypto.createHash('sha256').update(rp.id).digest();
+  const flagsBuf = Buffer.from([0x41]); // attestedCredentialData flag
+  const signCountBuf = Buffer.alloc(4);
+  const aaguid = Buffer.alloc(16);
+  const credId = crypto.randomBytes(16);
+  const credIdLenBuf = Buffer.alloc(2);
+  credIdLenBuf.writeUInt16BE(credId.length, 0);
+  
+  // Extract and encode public key
+  const publicKeyCoords = extractPublicKeyCoords(keyPair.publicKey);
+  const cosePublicKey = new Map([
+    [1, 2],         // kty: EC2
+    [3, -7],        // alg: ES256
+    [-1, 1],        // crv: P-256
+    [-2, publicKeyCoords.x], // x-coordinate
+    [-3, publicKeyCoords.y], // y-coordinate
+  ]);
+  const credentialPublicKey = cbor.encodeCanonical(cosePublicKey);
+  
+  // Combine all parts into authenticator data
+  const authenticatorData = Buffer.concat([
+    rpIdHash,
+    flagsBuf,
+    signCountBuf,
+    aaguid,
+    credIdLenBuf,
+    credId,
+    credentialPublicKey,
+  ]);
+  
+  // Create attestation object
+  const attestationObject = cbor.encodeCanonical({
+    fmt: 'none',
+    attStmt: {},
+    authData: authenticatorData,
+  });
+  
+  // Format final credential
+  return {
+    id: base64url(credId),
+    rawId: base64url(credId),
+    response: {
+      clientDataJSON: base64url(clientDataJSON),
+      attestationObject: base64url(attestationObject),
+    },
+    type: 'public-key',
+    clientExtensionResults: {},
+    authenticatorAttachment: 'platform',
+  };
+}
+
+/**
+ * Extracts public key coordinates from DER encoded key
+ * @param {Buffer} spkiDer - The DER encoded public key
+ * @returns {Object} Object containing x and y coordinates
+ */
+function extractPublicKeyCoords(spkiDer) {
+  let offset = spkiDer.length - 65;
+  while (offset >= 0) {
+    if (spkiDer[offset] === 0x04 && offset + 65 <= spkiDer.length) {
+      const coords = spkiDer.slice(offset + 1, offset + 65);
+      return {
+        x: coords.slice(0, 32),
+        y: coords.slice(32),
+      };
+    }
+    offset--;
+  }
+  throw new Error('Failed to extract public key coordinates');
+}
+
+// Command-line argument handling
+const main = async () => {
+  const args = process.argv.slice(2);
+  const inputFilename = args[0] || 'input.json';
+  const outputFilename = args[1] || 'generated-credential.json';
+  
+  try {
+    await processWebAuthnChallenge(inputFilename, outputFilename);
+  } catch (error) {
+    console.error('Failed to process WebAuthn challenge:', error);
+    process.exit(1);
+  }
+};
+
+// Run the main function if this script is executed directly
+if (require.main === module) {
+  main();
+}
+
+// Export for use as a module
+export default processWebAuthnChallenge;
+export { processWebAuthnChallenge, generateCredential };
