@@ -1,109 +1,97 @@
-const crypto = require('crypto');
-const cbor = require('cbor');
-const base64url = require('base64url');
-const fs = require('fs/promises');
+import crypto from 'crypto';
+import cbor from 'cbor';
+import base64url from 'base64url';
+import fs from 'fs/promises';
 
-/**
- * Reads from input.txt, signs the challenge, and writes to signedInput.txt
- */
-async function signChallenge() {
-  try {
-    // Read input file
-    const input = JSON.parse(await fs.readFile('input.txt', 'utf8'));
-    const registrationId = input.registrationId;
-    const publicKeyCredentialCreationOptions = JSON.parse(input.publicKeyCredentialCreationOptions);
-    const { challenge, rp, user } = publicKeyCredentialCreationOptions.publicKey;
-    
-    // Generate key pair
-    const keyPair = crypto.generateKeyPairSync('ec', {
-      namedCurve: 'prime256v1',
-      publicKeyEncoding: { type: 'spki', format: 'der' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-    });
-    
-    // Set origin based on rp.id
-    const origin = rp.id === "localhost" 
-      ? "http://localhost:3000"
-      : `https://${rp.id}`;
-    
-    // Create client data JSON
-    const clientDataJSON = Buffer.from(JSON.stringify({
-      type: 'webauthn.create',
-      challenge: challenge,
-      origin: origin,
-      crossOrigin: false,
-    }));
-    
-    // Generate authenticator data
-    const rpIdHash = crypto.createHash('sha256').update(rp.id).digest();
-    const flagsBuf = Buffer.from([0x41]);
-    const signCountBuf = Buffer.alloc(4);
-    const aaguid = Buffer.alloc(16);
-    const credId = crypto.randomBytes(16);
-    const credIdLenBuf = Buffer.alloc(2);
-    credIdLenBuf.writeUInt16BE(credId.length, 0);
-    
-    // Extract and encode public key
-    const publicKeyCoords = extractPublicKeyCoords(keyPair.publicKey);
-    const cosePublicKey = new Map([
-      [1, 2],
-      [3, -7],
-      [-1, 1],
-      [-2, publicKeyCoords.x],
-      [-3, publicKeyCoords.y],
-    ]);
-    const credentialPublicKey = cbor.encodeCanonical(cosePublicKey);
-    
-    // Combine all parts into authenticator data
-    const authenticatorData = Buffer.concat([
-      rpIdHash,
-      flagsBuf,
-      signCountBuf,
-      aaguid,
-      credIdLenBuf,
-      credId,
-      credentialPublicKey,
-    ]);
-    
-    // Create attestation object
-    const attestationObject = cbor.encodeCanonical({
-      fmt: 'none',
-      attStmt: {},
-      authData: authenticatorData,
-    });
-    
-    // Format final credential
-    const credential = {
-      id: base64url(credId),
-      rawId: base64url(credId),
-      response: {
-        clientDataJSON: base64url(clientDataJSON),
-        attestationObject: base64url(attestationObject),
-      },
-      type: 'public-key',
-      clientExtensionResults: {},
-      authenticatorAttachment: 'platform',
-    };
-    
-    // Prepare output
-    const finalOutput = {
-      registrationId,
-      publicKeyCredentialString: JSON.stringify(credential),
-    };
-    
-    // Write to signedInput.txt
-    await fs.writeFile('signedInput.txt', JSON.stringify(finalOutput, null, 2));
-    console.log('Credential signed and saved to "signedInput.txt"');
-  } catch (error) {
-    console.error('Error signing challenge:', error);
-  }
+async function signChallengeFromFile(inputFile, target, outputFile) {
+  const fileContent = JSON.parse(await fs.readFile(inputFile, 'utf8'));
+
+  const inputData = fileContent[target];
+  if (!inputData) throw new Error(`Target key '${target}' not found in input file.`);
+
+  const registrationId = inputData.registrationId;
+  const publicKeyCredentialCreationOptions = JSON.parse(inputData.publicKeyCredentialCreationOptions);
+  const { challenge, rp, user } = publicKeyCredentialCreationOptions.publicKey;
+
+  const challengeBuffer = base64url.toBuffer(challenge);
+
+  const keyPair = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+    publicKeyEncoding: { type: 'spki', format: 'der' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  const origin = rp.id === "localhost"
+    ? "http://localhost:3000"
+    : `https://${rp.id}`;
+
+  const clientDataJSON = Buffer.from(JSON.stringify({
+    type: 'webauthn.create',
+    challenge: challenge,
+    origin: origin,
+    crossOrigin: false,
+  }));
+
+  const rpIdHash = crypto.createHash('sha256').update(rp.id).digest();
+  const flagsBuf = Buffer.from([0x41]);
+  const signCountBuf = Buffer.alloc(4);
+  const aaguid = Buffer.alloc(16);
+  const credId = crypto.randomBytes(16);
+  const credIdLenBuf = Buffer.alloc(2);
+  credIdLenBuf.writeUInt16BE(credId.length, 0);
+
+  const publicKeyCoords = extractPublicKeyCoords(keyPair.publicKey);
+
+  const cosePublicKey = new Map([
+    [1, 2],
+    [3, -7],
+    [-1, 1],
+    [-2, publicKeyCoords.x],
+    [-3, publicKeyCoords.y],
+  ]);
+
+  const credentialPublicKey = cbor.encodeCanonical(cosePublicKey);
+
+  const authenticatorData = Buffer.concat([
+    rpIdHash,
+    flagsBuf,
+    signCountBuf,
+    aaguid,
+    credIdLenBuf,
+    credId,
+    credentialPublicKey,
+  ]);
+
+  const attestationObject = cbor.encodeCanonical({
+    fmt: 'none',
+    attStmt: {},
+    authData: authenticatorData,
+  });
+
+  const credential = {
+    id: base64url(credId),
+    rawId: base64url(credId),
+    response: {
+      clientDataJSON: base64url(clientDataJSON),
+      attestationObject: base64url(attestationObject),
+    },
+    type: 'public-key',
+    clientExtensionResults: {},
+    authenticatorAttachment: 'platform',
+  };
+
+  const finalOutput = {
+    registrationId,
+    publicKeyCredentialString: JSON.stringify(credential),
+  };
+
+  await fs.writeFile(outputFile, JSON.stringify(finalOutput, null, 2));
+  console.log(`Credential signed and saved to '${outputFile}'`);
 }
 
-/**
- * Extracts public key coordinates from DER encoded key
- */
 function extractPublicKeyCoords(spkiDer) {
   let offset = spkiDer.length - 65;
+
   while (offset >= 0) {
     if (spkiDer[offset] === 0x04 && offset + 65 <= spkiDer.length) {
       const coords = spkiDer.slice(offset + 1, offset + 65);
@@ -117,5 +105,25 @@ function extractPublicKeyCoords(spkiDer) {
   throw new Error('Failed to extract public key coordinates');
 }
 
-// Run the function
-signChallenge();
+async function processMultipleInputs({ inputFile, inputs, outputs, targets }) {
+  if (inputs.length !== outputs.length || inputs.length !== targets.length) {
+    throw new Error('Inputs, targets, and outputs arrays must have the same length');
+  }
+
+  for (let i = 0; i < inputs.length; i++) {
+    const target = targets[i];
+    const inputKey = inputs[i];
+    const outputFile = outputs[i];
+
+    await signChallengeFromFile(inputFile, inputKey, outputFile);
+  }
+}
+
+const config = {
+  inputFile: 'input.txt',
+  inputs: ["IMadeHTisName", "ThisIsFake", "Look"],
+  targets: ["IMadeHTisName", "ThisIsFake", "Look"], // using same keys for target lookup
+  outputs: ["goHere.json", "here.json", "andHere.json"],
+};
+
+processMultipleInputs(config).catch(console.error);
