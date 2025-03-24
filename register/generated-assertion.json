@@ -1,0 +1,4 @@
+{
+  "assertionId": "fccb94ee-b863-4d0b-b378-b4677704c0b1",
+  "assertionResponse": "{\"credentialId\":\"r7QNb-RdBSOJSxgXh680Lw\",\"clientDataJSON\":\"eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiOFpHMWxuV0dleXJ4N2daNlduS29LNU91NVp3Z0NyYmFKcGNCa0hEVzktTSIsIm9yaWdpbiI6Imh0dHBzOi8vbG9jYWxob3N0IiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ\",\"authenticatorData\":\"SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MBAAAAAA\",\"signature\":\"MEUCIC99K9xS_zBlKGC0lnQIOuDWGC8WnjcnioD0Icqr-Ew6AiEAlPMUthZwA5D6lHX6sTubOb7DRholHuXW2kEzFPlsgFs\",\"userHandle\":null}"
+}

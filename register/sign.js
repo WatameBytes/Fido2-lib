@@ -77,8 +77,18 @@ async function signChallengeFromFile(filename) {
     publicKeyCredentialString: JSON.stringify(credential),
   };
 
+  // Save public credential data
   await fs.writeFile('generated-credential.json', JSON.stringify(finalOutput, null, 2));
+
+  // Explicitly store Credential ID and Private Key for future authentication
+  const secretData = {
+    credentialId: base64url(credId),
+    privateKey: Buffer.from(keyPair.privateKey).toString('base64'),
+  };  
+  await fs.writeFile('credential-secrets.json', JSON.stringify(secretData, null, 2));
+
   console.log('Credential signed and saved to "generated-credential.json"');
+  console.log('Credential secrets saved to "credential-secrets.json"');
 }
 
 function extractPublicKeyCoords(spkiDer) {
@@ -97,5 +107,5 @@ function extractPublicKeyCoords(spkiDer) {
   throw new Error('Failed to extract public key coordinates');
 }
 
-const filename = 'input.txt'; // Update this filename as needed
+const filename = 'input.txt'; // Update as needed
 signChallengeFromFile(filename);

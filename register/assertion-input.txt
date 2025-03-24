@@ -1,0 +1,4 @@
+{
+	"assertionId": "fccb94ee-b863-4d0b-b378-b4677704c0b1",
+	"credentialJson": "{\"publicKey\":{\"challenge\":\"8ZG1lnWGeyrx7gZ6WnKoK5Ou5ZwgCrbaJpcBkHDW9-M\",\"timeout\":60000,\"rpId\":\"localhost\",\"extensions\":{}}}"
+}
