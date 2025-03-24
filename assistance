@@ -1,0 +1,68 @@
+import crypto from 'crypto';
+import base64url from 'base64url';
+import fs from 'fs/promises';
+
+async function authenticateFromFile(assertionInputFile, credentialSecretsFile) {
+  // Load the assertion input and credential secrets
+  const assertionInput = JSON.parse(await fs.readFile(assertionInputFile, 'utf8'));
+  const credentialSecrets = JSON.parse(await fs.readFile(credentialSecretsFile, 'utf8'));
+
+  const { credentialId, privateKey } = credentialSecrets;
+  const decodedPrivateKey = Buffer.from(privateKey, 'base64').toString('utf8');
+
+  const credentialJson = JSON.parse(assertionInput.credentialJson);
+  const { challenge, rpId } = credentialJson.publicKey;
+
+  // Prepare clientDataJSON
+  const clientDataJSON = Buffer.from(JSON.stringify({
+    type: 'webauthn.get',
+    challenge: challenge,
+    origin: `https://${rpId}`,
+    crossOrigin: false,
+  }));
+
+  // Prepare authenticatorData
+  const rpIdHash = crypto.createHash('sha256').update(rpId).digest();
+  const flagsBuf = Buffer.from([0x01]); // User Present
+  const signCountBuf = Buffer.alloc(4); // Zero initialized
+  const authenticatorData = Buffer.concat([rpIdHash, flagsBuf, signCountBuf]);
+
+  // Prepare Signature Base (authenticatorData + hash(clientDataJSON))
+  const signatureBase = Buffer.concat([
+    authenticatorData,
+    crypto.createHash('sha256').update(clientDataJSON).digest(),
+  ]);
+
+  // Sign using stored private key
+  const sign = crypto.createSign('SHA256');
+  sign.update(signatureBase);
+  sign.end();
+
+  const signature = sign.sign(decodedPrivateKey);
+
+  // Construct the response exactly as required by Yubico
+  const publicKeyCredential = {
+    id: credentialId, // credential ID
+    response: {
+      authenticatorData: base64url(authenticatorData),
+      signature: base64url(signature),
+      clientDataJSON: base64url(clientDataJSON),
+      userHandle: null
+    },
+    clientExtensionResults: {},
+    type: "public-key"
+  };
+
+  // Write final output directly (matching Yubico expectation)
+  await fs.writeFile(
+    'generated-assertion.json',
+    JSON.stringify(publicKeyCredential, null, 2)
+  );
+
+  console.log('Assertion signed and saved to "generated-assertion.json"');
+}
+
+const assertionInputFile = 'assertion-input.txt';
+const credentialSecretsFile = 'credential-secrets.json';
+
+authenticateFromFile(assertionInputFile, credentialSecretsFile);
