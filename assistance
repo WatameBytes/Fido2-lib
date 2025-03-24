@@ -1,3 +1,28 @@
+// Corrected Final assertion response
+const assertionResponse = {
+  id: credentialId,
+  response: {
+    authenticatorData: base64url(authenticatorData),
+    signature: base64url(signature),
+    clientDataJSON: base64url(clientDataJSON),
+    userHandle: null
+  },
+  clientExtensionResults: {},
+  type: "public-key"
+};
+
+const finalOutput = {
+  assertionId: assertionInput.assertionId,
+  assertionResponse: JSON.stringify(assertionResponse),
+};
+
+await fs.writeFile('generated-assertion.json', JSON.stringify(finalOutput, null, 2));
+console.log('Assertion signed and saved to "generated-assertion.json"');
+
+
+
+
+
 import crypto from 'crypto';
 import base64url from 'base64url';
 import fs from 'fs/promises';
