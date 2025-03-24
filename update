@@ -1,0 +1,107 @@
+import crypto from 'crypto';
+import cbor from 'cbor';
+import base64url from 'base64url';
+import fs from 'fs/promises';
+
+async function signWebAuthn(publicKeyCredentialCreationOptionsJson) {
+  const publicKeyCredentialCreationOptions = JSON.parse(publicKeyCredentialCreationOptionsJson);
+  const { challenge, rp } = publicKeyCredentialCreationOptions.publicKey;
+
+  const keyPair = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+    publicKeyEncoding: { type: 'spki', format: 'der' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  const origin = rp.id === "localhost"
+    ? "http://localhost:3000"
+    : `https://${rp.id}`;
+
+  const clientDataJSON = Buffer.from(JSON.stringify({
+    type: 'webauthn.create',
+    challenge: challenge,
+    origin: origin,
+    crossOrigin: false,
+  }));
+
+  const rpIdHash = crypto.createHash('sha256').update(rp.id).digest();
+  const flagsBuf = Buffer.from([0x41]);
+  const signCountBuf = Buffer.alloc(4);
+  const aaguid = Buffer.alloc(16);
+  const credId = crypto.randomBytes(16);
+  const credIdLenBuf = Buffer.alloc(2);
+  credIdLenBuf.writeUInt16BE(credId.length, 0);
+
+  const publicKeyCoords = extractPublicKeyCoords(keyPair.publicKey);
+  const cosePublicKey = new Map([
+    [1, 2],
+    [3, -7],
+    [-1, 1],
+    [-2, publicKeyCoords.x],
+    [-3, publicKeyCoords.y],
+  ]);
+
+  const credentialPublicKey = cbor.encodeCanonical(cosePublicKey);
+
+  const authenticatorData = Buffer.concat([
+    rpIdHash,
+    flagsBuf,
+    signCountBuf,
+    aaguid,
+    credIdLenBuf,
+    credId,
+    credentialPublicKey,
+  ]);
+
+  const attestationObject = cbor.encodeCanonical({
+    fmt: 'none',
+    attStmt: {},
+    authData: authenticatorData,
+  });
+
+  const credential = {
+    id: base64url(credId),
+    rawId: base64url(credId),
+    response: {
+      clientDataJSON: base64url(clientDataJSON),
+      attestationObject: base64url(attestationObject),
+    },
+    type: 'public-key',
+    clientExtensionResults: {},
+    authenticatorAttachment: 'platform',
+  };
+
+  return JSON.stringify(credential);
+}
+
+function extractPublicKeyCoords(spkiDer) {
+  let offset = spkiDer.length - 65;
+  while (offset >= 0) {
+    if (spkiDer[offset] === 0x04 && offset + 65 <= spkiDer.length) {
+      const coords = spkiDer.slice(offset + 1, offset + 65);
+      return {
+        x: coords.slice(0, 32),
+        y: coords.slice(32),
+      };
+    }
+    offset--;
+  }
+  throw new Error('Failed to extract public key coordinates');
+}
+
+async function main() {
+  const input = JSON.parse(await fs.readFile('input.txt', 'utf8'));
+
+  const outputs = ["X", "Y", "Z"];
+
+  const finalOutput = {
+    [outputs[0]]: input.registrationId,
+    [outputs[1]]: await signWebAuthn(input.publicKeyCredentialCreationOptionsJson),
+    [outputs[2]]: input.encryptedChallenge
+  };
+
+  await fs.writeFile('signedInput.txt', JSON.stringify(finalOutput, null, 2));
+  console.log(`Successfully signed input and wrote to 'signedInput.txt'`);
+}
+
+main().catch(console.error);
