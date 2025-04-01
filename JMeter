@@ -1,0 +1,33 @@
+import groovy.json.JsonSlurper
+import org.apache.commons.lang3.StringEscapeUtils
+
+def responseBody = prev.getResponseDataAsString()
+
+def command = ["node", "sign.mjs"]
+def pb = new ProcessBuilder(command)
+pb.redirectErrorStream(true)
+
+def process = pb.start()
+
+process.outputStream.withWriter("UTF-8") { writer ->
+    writer << responseBody
+}
+
+process.waitFor()
+
+def raw = process.inputStream.text.trim()
+
+if (raw.startsWith("{")) {
+    def resultJson = new JsonSlurper().parseText(raw)
+
+    def escaped = StringEscapeUtils.escapeJson(resultJson.publicKeyCredentialString)
+
+    vars.put("signedCredential", escaped)
+    vars.put("registrationId", resultJson.registrationId)
+
+    log.info("🆔 registrationId = " + resultJson.registrationId)
+    log.info("🔐 signedCredential = " + escaped)
+} else {
+    log.error("❌ Node script failed. Output:\n" + raw)
+    throw new Exception("Node script failed or returned invalid JSON.")
+}
